@@ -1,0 +1,7 @@
+#!/bin/bash
+set -e
+
+if [[ -f .gitattributes ]] && grep -qE "^${1}\s+filter=git-crypt\s+diff=git-crypt$" .gitattributes; then
+    sed -i '' -E "/^${1}[[:space:]]+filter=git-crypt[[:space:]]+diff=git-crypt$/d" .gitattributes
+    echo "Decrypting \"${1}\""
+fi

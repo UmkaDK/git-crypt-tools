@@ -1,0 +1,74 @@
+#!/bin/bash
+set -e
+
+: ${@:?Missing parameter: gpg fingerprint}
+
+INIT_DIR=$(pwd)
+TEMP_DIR=$(mktemp -d)
+
+trap "rm -Rf ${TEMP_DIR}; cd ${INIT_DIR}" EXIT
+
+GIT_DIR="$(git rev-parse --show-toplevel)"
+GIT_TMP="${TEMP_DIR}/$(basename ${GIT_DIR})"
+
+ENCRYPTED_FILES=$(git crypt status | grep -v "not encrypted" | awk '{print $2}')
+
+# Build a list of valid gpg keys
+for file in $(find "${GIT_DIR}/.git-crypt/keys/default" -type f); do
+    key=$(basename "${file}" '.gpg')
+    if ! echo "${@}" | grep -qE "\b${key}\b"; then
+        GPG_ENCRYPTION_KEYS+=" ${key}"
+    fi
+done
+
+# Clone current git directory
+git crypt unlock
+cp -a "${GIT_DIR}" "${TEMP_DIR}"
+
+# Do all the work in the temp repository
+cd "${GIT_TMP}"
+
+# Remove all encrypted content
+git rm --cached -- ${ENCRYPTED_FILES}
+git commit --all --message "Removed all encrypted content"
+echo
+
+# Remove git-crypt symmetric key and gpg users
+rm -Rf .git-crypt .git/git-crypt
+git commit --all --message "Removed git-crypt GPG users"
+echo
+
+# Re-initialize git crypt and re-add encrypted content
+git crypt init
+git add --all
+git commit --all --message "Re-added encrypted content using a new key"
+
+# Re-add valid GPG users
+if [[ -n "${GPG_ENCRYPTION_KEYS}" ]]; then
+    git crypt add-gpg-user --trusted ${GPG_ENCRYPTION_KEYS}
+fi
+echo
+
+# Import all changes from the temp repo
+echo "Merge changes into the current branch..."
+cd "${GIT_DIR}"
+git crypt lock
+git pull "${GIT_TMP}"
+git crypt unlock "${GIT_TMP}/.git/git-crypt/keys/default"
+echo
+
+# Warn the user that all GPG users are gone
+if [[ -z "${GPG_ENCRYPTION_KEYS}" ]]; then
+cat <<EOS
+*************************************************************
+WARNING: all GPG users have been removed from the repository!
+
+Encrypted files have been re-encrypted using a new key, but
+the key itself has not been committed to the repository.
+
+Use 'git crypt export-key FILE' to save the new key.
+
+YOU WILL LOSE ACCESS TO THE ENCRYPTED DATA IF THE KEY IS LOST
+*************************************************************
+EOS
+fi

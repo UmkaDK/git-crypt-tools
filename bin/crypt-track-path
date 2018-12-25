@@ -1,0 +1,11 @@
+#!/bin/bash
+set -e
+
+if [[ -f .gitattributes ]]; then
+    sed -i '' -E '/^\.git\*[[:space:]]+!filter[[:space:]]+!diff$/d' .gitattributes
+fi
+
+echo "${1} filter=git-crypt diff=git-crypt" >> .gitattributes
+echo '.git* !filter !diff' >> .gitattributes
+
+echo "Encrypting \"${1}\""
